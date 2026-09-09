@@ -941,13 +941,14 @@ describe('discoverAuthorizationServerMetadata', () => {
       'https://auth.example.com/.well-known/oauth-authorization-server';
 
     const fetchFn = vi.fn(
-      async (url: URL | RequestInfo, init?: RequestInit) => {
+      async (url: URL | RequestInfo, init?: RequestInit): Promise<Response> => {
         const href = String(url);
         requestedUrls.push(href);
 
         if (href === publicMetadataUrl) {
           if (init?.redirect !== 'error') {
-            return fetchFn(new URL(linkLocalMetadataUrl), init);
+            requestedUrls.push(linkLocalMetadataUrl);
+            return new Response('ssrf-body', { status: 200 });
           }
 
           return new Response(null, {
@@ -2690,9 +2691,11 @@ describe('auth function', () => {
 
   it('does not follow authorization server metadata redirects to link-local addresses', async () => {
     const linkLocalMetadataUrl = 'http://169.254.169.254/latest/meta-data/';
+    const requestedUrls: string[] = [];
 
     mockFetch.mockImplementation((url, init) => {
       const urlString = url.toString();
+      requestedUrls.push(urlString);
 
       if (urlString.includes('/.well-known/oauth-protected-resource')) {
         return Promise.resolve({
@@ -2710,7 +2713,12 @@ describe('auth function', () => {
         'https://auth.example.com/.well-known/oauth-authorization-server'
       ) {
         if (init?.redirect !== 'error') {
-          return mockFetch(new URL(linkLocalMetadataUrl), init);
+          requestedUrls.push(linkLocalMetadataUrl);
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: async () => ({}),
+          });
         }
 
         return Promise.resolve({
@@ -2743,11 +2751,7 @@ describe('auth function', () => {
       }),
     ).rejects.toThrow(/HTTP 302/);
 
-    expect(
-      mockFetch.mock.calls.some(
-        call => call[0].toString() === linkLocalMetadataUrl,
-      ),
-    ).toBe(false);
+    expect(requestedUrls).not.toContain(linkLocalMetadataUrl);
   });
 
   it('skips default PRM resource validation when custom validateResourceURL is provided', async () => {
