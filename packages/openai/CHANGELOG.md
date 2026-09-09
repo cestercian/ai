@@ -1,5 +1,11 @@
 # @ai-sdk/openai
 
+## 3.0.112
+
+### Patch Changes
+
+- 1336501: fix(openai): return an AI SDK error for empty chat completion choices
+
 ## 3.0.111
 
 ### Patch Changes
