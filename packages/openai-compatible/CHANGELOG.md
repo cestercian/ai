@@ -1,5 +1,11 @@
 # @ai-sdk/openai-compatible
 
+## 3.0.46
+
+### Patch Changes
+
+- ccb8952: fix(openai): return an AI SDK error for empty chat completion choices
+
 ## 3.0.45
 
 ### Patch Changes

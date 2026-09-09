@@ -1,5 +1,12 @@
 # @ai-sdk/huggingface
 
+## 2.0.46
+
+### Patch Changes
+
+- Updated dependencies [ccb8952]
+  - @ai-sdk/openai-compatible@3.0.46
+
 ## 2.0.45
 
 ### Patch Changes
