@@ -140,13 +140,16 @@ function isOAuthLoopbackHost(hostname: string): boolean {
 }
 
 /**
- * Guards metadata-derived token/registration URLs before credentials are sent.
+ * Guards OAuth HTTP targets before the client fetches them.
  * Loopback is allowed for local OAuth; every other target uses the shared
  * download URL guard (http(s) only, no private/link-local IPs).
  *
- * Credential POSTs use `redirect: 'error'` instead of
- * `fetchWithValidatedRedirects`, which is GET-only and would follow hops with
- * the authorization code, PKCE verifier, and client secret still attached.
+ * Applied to metadata discovery GETs and to credential POSTs. Both use
+ * `redirect: 'error'` rather than `fetchWithValidatedRedirects`: metadata GETs
+ * must not follow a public authorization server to a private hop, and
+ * credential POSTs must not forward the authorization code, PKCE verifier, or
+ * client secret across a redirect. `fetchWithValidatedRedirects` is GET-only
+ * and also rejects loopback hosts used by local MCP OAuth.
  */
 function assertSafeOAuthEndpoint(endpointUrl: URL): void {
   if (
@@ -424,8 +427,10 @@ async function fetchWithCorsRetry(
   headers?: Record<string, string>,
   fetchFn: FetchFunction = fetch,
 ): Promise<Response | undefined> {
+  assertSafeOAuthEndpoint(url);
+
   try {
-    return await fetchFn(url, { headers });
+    return await fetchFn(url, { headers, redirect: 'error' });
   } catch (error) {
     if (error instanceof TypeError) {
       if (headers) {

@@ -498,6 +498,24 @@ describe('discoverOAuthProtectedResourceMetadata', () => {
     expect(options.headers).toEqual({
       'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION,
     });
+    expect(options.redirect).toBe('error');
+  });
+
+  it('rejects private protected resource metadata URLs before GETs', async () => {
+    const fetchFn = vi.fn();
+
+    await expect(
+      discoverOAuthProtectedResourceMetadata(
+        'http://169.254.169.254/',
+        {
+          resourceMetadataUrl:
+            'http://169.254.169.254/.well-known/oauth-protected-resource',
+        },
+        fetchFn,
+      ),
+    ).rejects.toThrow('OAuth endpoint URL is not allowed');
+
+    expect(fetchFn).not.toHaveBeenCalled();
   });
 });
 
@@ -804,6 +822,8 @@ describe('discoverAuthorizationServerMetadata', () => {
 
     // Second call should not have headers (CORS retry)
     expect(calls[1][1]?.headers).toBeUndefined();
+    expect(calls[0][1]?.redirect).toBe('error');
+    expect(calls[1][1]?.redirect).toBe('error');
   });
 
   it('supports custom fetch function', async () => {
@@ -841,6 +861,7 @@ describe('discoverAuthorizationServerMetadata', () => {
     expect(options.headers).toEqual({
       'MCP-Protocol-Version': '2025-01-01',
     });
+    expect(options.redirect).toBe('error');
   });
 
   it('returns undefined when all URLs fail with CORS errors', async () => {
@@ -857,6 +878,100 @@ describe('discoverAuthorizationServerMetadata', () => {
 
     // Verify that all discovery URLs were attempted
     expect(mockFetch).toHaveBeenCalledTimes(8); // 4 URLs × 2 attempts each (with and without headers)
+  });
+
+  it('rejects private authorization server URLs before metadata GETs', async () => {
+    const fetchFn = vi.fn();
+
+    await expect(
+      discoverAuthorizationServerMetadata('http://169.254.169.254/', {
+        fetchFn,
+      }),
+    ).rejects.toThrow(
+      'OAuth endpoint URL is not allowed: http://169.254.169.254/.well-known/oauth-authorization-server',
+    );
+
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  it('rejects RFC1918 authorization server URLs before metadata GETs', async () => {
+    const fetchFn = vi.fn();
+
+    await expect(
+      discoverAuthorizationServerMetadata('http://10.0.0.1/oauth', {
+        fetchFn,
+      }),
+    ).rejects.toThrow('OAuth endpoint URL is not allowed');
+
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  it('allows loopback authorization server metadata discovery for local MCP OAuth', async () => {
+    const localMetadata = {
+      issuer: 'http://localhost:4000',
+      authorization_endpoint: 'http://localhost:4000/authorize',
+      token_endpoint: 'http://localhost:4000/token',
+      response_types_supported: ['code'],
+      code_challenge_methods_supported: ['S256'],
+    };
+    const fetchFn = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => localMetadata,
+    });
+
+    await expect(
+      discoverAuthorizationServerMetadata('http://localhost:4000', {
+        fetchFn,
+      }),
+    ).resolves.toEqual(localMetadata);
+
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchFn.mock.calls[0];
+    expect(url.href).toBe(
+      'http://localhost:4000/.well-known/oauth-authorization-server',
+    );
+    expect(init.redirect).toBe('error');
+  });
+
+  it('does not follow metadata redirects to link-local addresses', async () => {
+    const requestedUrls: string[] = [];
+    const linkLocalMetadataUrl = 'http://169.254.169.254/latest/meta-data/';
+    const publicMetadataUrl =
+      'https://auth.example.com/.well-known/oauth-authorization-server';
+
+    const fetchFn = vi.fn(
+      async (url: URL | RequestInfo, init?: RequestInit) => {
+        const href = String(url);
+        requestedUrls.push(href);
+
+        if (href === publicMetadataUrl) {
+          if (init?.redirect !== 'error') {
+            return fetchFn(new URL(linkLocalMetadataUrl), init);
+          }
+
+          return new Response(null, {
+            status: 302,
+            headers: { Location: linkLocalMetadataUrl },
+          });
+        }
+
+        if (href === linkLocalMetadataUrl) {
+          return new Response('ssrf-body', { status: 200 });
+        }
+
+        return new Response(null, { status: 404 });
+      },
+    );
+
+    await expect(
+      discoverAuthorizationServerMetadata('https://auth.example.com', {
+        fetchFn,
+      }),
+    ).rejects.toThrow(/HTTP 302/);
+
+    expect(requestedUrls).not.toContain(linkLocalMetadataUrl);
+    expect(fetchFn.mock.calls[0][1]?.redirect).toBe('error');
   });
 });
 
@@ -2530,6 +2645,107 @@ describe('auth function', () => {
         call =>
           call[0].toString() ===
           'https://evil.example/.well-known/oauth-authorization-server',
+      ),
+    ).toBe(false);
+  });
+
+  it('rejects private authorization_servers from PRM before metadata discovery', async () => {
+    mockFetch.mockImplementation(url => {
+      const urlString = url.toString();
+
+      if (urlString.includes('/.well-known/oauth-protected-resource')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            resource: 'https://api.example.com/mcp-server',
+            authorization_servers: ['http://169.254.169.254/'],
+          }),
+        });
+      }
+
+      return Promise.resolve({ ok: false, status: 404 });
+    });
+
+    (mockProvider.clientInformation as Mock).mockResolvedValue({
+      client_id: 'real-client',
+      client_secret: 'real-secret',
+    });
+    (mockProvider.tokens as Mock).mockResolvedValue(undefined);
+
+    await expect(
+      auth(mockProvider, {
+        serverUrl: 'https://api.example.com/mcp-server',
+      }),
+    ).rejects.toThrow(
+      'OAuth endpoint URL is not allowed: http://169.254.169.254/.well-known/oauth-authorization-server',
+    );
+
+    expect(
+      mockFetch.mock.calls.some(call =>
+        call[0].toString().includes('169.254.169.254'),
+      ),
+    ).toBe(false);
+  });
+
+  it('does not follow authorization server metadata redirects to link-local addresses', async () => {
+    const linkLocalMetadataUrl = 'http://169.254.169.254/latest/meta-data/';
+
+    mockFetch.mockImplementation((url, init) => {
+      const urlString = url.toString();
+
+      if (urlString.includes('/.well-known/oauth-protected-resource')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            resource: 'https://api.example.com/mcp-server',
+            authorization_servers: ['https://auth.example.com'],
+          }),
+        });
+      }
+
+      if (
+        urlString ===
+        'https://auth.example.com/.well-known/oauth-authorization-server'
+      ) {
+        if (init?.redirect !== 'error') {
+          return mockFetch(new URL(linkLocalMetadataUrl), init);
+        }
+
+        return Promise.resolve({
+          ok: false,
+          status: 302,
+          headers: { get: () => linkLocalMetadataUrl },
+        });
+      }
+
+      if (urlString === linkLocalMetadataUrl) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({}),
+        });
+      }
+
+      return Promise.resolve({ ok: false, status: 404 });
+    });
+
+    (mockProvider.clientInformation as Mock).mockResolvedValue({
+      client_id: 'real-client',
+      client_secret: 'real-secret',
+    });
+    (mockProvider.tokens as Mock).mockResolvedValue(undefined);
+
+    await expect(
+      auth(mockProvider, {
+        serverUrl: 'https://api.example.com/mcp-server',
+      }),
+    ).rejects.toThrow(/HTTP 302/);
+
+    expect(
+      mockFetch.mock.calls.some(
+        call => call[0].toString() === linkLocalMetadataUrl,
       ),
     ).toBe(false);
   });

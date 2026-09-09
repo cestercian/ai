@@ -181,8 +181,10 @@ transports by providing an `authProvider`.
 ### OAuth Authorization Server Validation
 
 When using MCP OAuth in server-side applications, the MCP server can advertise
-the OAuth authorization server to use. If you connect to MCP servers outside
-your control, implement `validateAuthorizationServerURL` on your
+the OAuth authorization server to use. Metadata discovery rejects
+private, link-local, and non-HTTP(S) authorization server URLs by default and
+does not follow HTTP redirects. If you connect to MCP servers outside your
+control, also implement `validateAuthorizationServerURL` on your
 `authProvider` to allow only the authorization server origins you trust:
 
 ```typescript
