@@ -1,5 +1,11 @@
 # @ai-sdk/provider-utils
 
+## 3.0.37
+
+### Patch Changes
+
+- ab3990f: fix(provider-utils): avoid excessive memory usage when base64 encoding byte arrays
+
 ## 3.0.36
 
 ### Patch Changes

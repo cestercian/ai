@@ -1,5 +1,12 @@
 # @ai-sdk/prodia
 
+## 0.0.21
+
+### Patch Changes
+
+- Updated dependencies [ab3990f]
+  - @ai-sdk/provider-utils@3.0.37
+
 ## 0.0.20
 
 ### Patch Changes

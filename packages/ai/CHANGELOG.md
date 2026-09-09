@@ -1,5 +1,14 @@
 # ai
 
+## 5.0.255
+
+### Patch Changes
+
+- 7f4e217: fix(ai): decode text data URLs in Node.js
+- Updated dependencies [ab3990f]
+  - @ai-sdk/provider-utils@3.0.37
+  - @ai-sdk/gateway@2.0.149
+
 ## 5.0.254
 
 ### Patch Changes

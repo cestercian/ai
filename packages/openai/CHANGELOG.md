@@ -1,5 +1,13 @@
 # @ai-sdk/openai
 
+## 2.0.127
+
+### Patch Changes
+
+- fd889a3: fix(openai): return an AI SDK error for empty chat completion choices
+- Updated dependencies [ab3990f]
+  - @ai-sdk/provider-utils@3.0.37
+
 ## 2.0.126
 
 ### Patch Changes
